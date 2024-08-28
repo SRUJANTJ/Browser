@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Electron Browser</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+        }
+
+        #tab-bar {
+            display: flex;
+            background-color: #444;
+            padding: 5px;
+        }
+
+        .tab {
+            padding: 10px;
+            margin-right: 5px;
+            background-color: #319197;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .tab.active {
+            background-color: #333;
+        }
+
+        .close-tab-btn {
+            margin-left: 10px;
+            color: #bbb;
+            cursor: pointer;
+        }
+
+        #add-tab {
+            padding: 10px;
+            background-color: #333;
+            color: white;
+            cursor: pointer;
+            border-radius: 5px 5px 0 0;
+        }
+
+        #nav-bar {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background-color: #319197;
+        }
+
+        #nav-bar input {
+            width: 100%;
+            height: 40px;
+            padding: 10px;
+            margin-right: 15px;
+            font-size: 16px;
+            border: 1px solid #555;
+            border-radius: 5px;
+            background-color: #444;
+            color: white;
+        }
+
+        #nav-bar input::placeholder {
+            color: #888;
+        }
+
+        #nav-bar button {
+            height: 40px;
+            padding: 0 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #444;
+            border: none;
+            border-radius: 5px;
+            color: white;
+            margin-right: 10px;
+        }
+
+        webview {
+            width: 100%;
+            height: calc(100% - 110px);
+            /* Full height minus the height of the nav-bar and tab-bar */
+            border: none;
+        }
+
+        .loading-indicator {
+            display: none;
+            margin-left: 10px;
+            color: white;
+            font-size: 16px;
+        }
+
+        .loading-indicator.active {
+            display: inline-block;
+        }
+
+        #suggestions {
+            position: absolute;
+            background-color: #dad0d0;
+            color: black;
+            border: 1px solid #555;
+            border-radius: 5px;
+            margin-top: 211px;
+            width: calc(100% - 2rem);
+            margin-left: 2rem;
+            max-height: 150px;
+            overflow-y: auto;
+            display: none;
+        }
+
+        #suggestions div {
+            padding: 10px;
+            cursor: pointer;
+        }
+
+        #suggestions div:hover {
+            background-color: #555;
+        }
+
+        /* Side Menu Styles */
+        #side-menu {
+    position: fixed;
+    top: 0;
+    right: -250px;
+    width: 250px;
+    /* height: 50%; */
+    background-color: #333;
+    color: white;
+    box-shadow: 2px 0 5px rgba(0, 0, 0, 0.5);
+    transition: left 0.3s ease;
+    z-index: 1000;
+}
+
+        #side-menu.open {
+    right: 0;
+    top: 8rem;
+}
+        #side-menu ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        #side-menu ul li {
+            padding: 15px;
+            border-bottom: 1px solid #555;
+            cursor: pointer;
+        }
+
+        #side-menu ul li:hover {
+            background-color: #444;
+        }
+
+        #hamburger-menu {
+            cursor: pointer;
+            margin-left: 10px;
+            font-size: 24px;
+            color: white;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="tab-bar">
+        <div class="tab active" data-id="0">New Tab <span class="close-tab-btn">&times;</span></div>
+        <div id="add-tab">+</div>
+    </div>
+    <div id="nav-bar">
+        <button id="backward-btn">&#x2190;</button>
+        <input type="text" id="url-input" placeholder="Enter URL or search query">
+        <span id="hamburger-menu">&#9776;</span> <!-- Hamburger Menu Icon -->
+
+        <div id="suggestions"></div>
+        <div class="loading-indicator" id="loading-indicator">Loading...</div>
+    </div>
+    <webview id="browser-view-0" class="browser-view active" src="about:blank"></webview>
+    
+    <!-- Side Menu -->
+     
+    <div id="side-menu">
+        <ul>
+            <li>Home</li>
+            <li>About</li>
+            <li>Services</li>
+            <li>Contact</li>
+            <li id="exit">Exit</li>
+        </ul>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            let tabCount = 1;
+            const backwardBtn = document.getElementById('backward-btn');
+            const urlInput = document.getElementById('url-input');
+            const addTabBtn = document.getElementById('add-tab');
+            const tabBar = document.getElementById('tab-bar');
+            const loadingIndicator = document.getElementById('loading-indicator');
+            const suggestions = document.getElementById('suggestions');
+            const sideMenu = document.getElementById('side-menu');
+            const hamburgerMenu = document.getElementById('hamburger-menu');
+            const exit = document.getElementById('exit');
+            let menuOpen = false;
+        
+            addTabBtn.addEventListener('click', () => {
+                // Create a new tab
+                const newTab = document.createElement('div');
+                newTab.classList.add('tab');
+                newTab.dataset.id = tabCount;
+                newTab.innerHTML = `New Tab ${tabCount} <span class="close-tab-btn">&times;</span>`;
+                tabBar.insertBefore(newTab, addTabBtn);
+        
+                // Create a new webview for the tab
+                const newWebview = document.createElement('webview');
+                newWebview.id = `browser-view-${tabCount}`;
+                newWebview.classList.add('browser-view');
+                newWebview.src = 'about:blank'; // Start with a blank page
+                newWebview.style.width = '100%';
+                newWebview.style.height = 'calc(100% - 110px)';
+                document.body.appendChild(newWebview);
+        
+                // Switch to the new tab
+                switchTab(tabCount);
+        
+                // Clear the input field and set focus for new tab navigation
+                urlInput.value = '';
+                tabCount++;
+            });
+        
+            tabBar.addEventListener('click', (e) => {
+                if (e.target.classList.contains('tab')) {
+                    const tabId = e.target.dataset.id;
+                    switchTab(tabId);
+                }
+        
+                if (e.target.classList.contains('close-tab-btn')) {
+                    const tabId = e.target.parentElement.dataset.id;
+                    closeTab(tabId);
+                }
+            });
+        
+            urlInput.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    navigateToURL();
+                }
+            });
+        
+            urlInput.addEventListener('input', () => {
+                const query = urlInput.value.trim();
+                if (query) {
+                    fetchSuggestions(query);
+                } else {
+                    suggestions.style.display = 'none';
+                }
+            });
+        
+            backwardBtn.addEventListener('click', () => {
+                const activeTabId = document.querySelector('.tab.active').dataset.id;
+                const activeWebview = document.getElementById(`browser-view-${activeTabId}`);
+                if (activeWebview.canGoBack()) {
+                    activeWebview.goBack();
+                }
+            });
+        
+            hamburgerMenu.addEventListener('click', () => {
+                sideMenu.classList.toggle('open');
+                menuOpen = !menuOpen;
+            });
+        
+            exit.addEventListener('click', () => {
+                menuOpen = false;
+            });
+        
+            // Close side menu if click outside
+            document.addEventListener('click', (event) => {
+                suggestions.style.display = 'none';
+        
+                if (menuOpen && !sideMenu.contains(event.target) && !hamburgerMenu.contains(event.target)) {
+                    sideMenu.classList.remove('open');
+                    menuOpen = false;
+                }
+            });
+        
+            function navigateToURL() {
+                const activeTabId = document.querySelector('.tab.active').dataset.id;
+                const input = urlInput.value.trim();
+        
+                if (input) {
+                    let url;
+        
+                    if (input.startsWith('http://') || input.startsWith('https://') || input.includes('.')) {
+                        url = input;
+                    } else {
+                        url = `https://www.google.com/search?q=${encodeURIComponent(input)}`;
+                    }
+        
+                    const activeWebview = document.getElementById(`browser-view-${activeTabId}`);
+                    activeWebview.src = url;
+        
+                    loadingIndicator.classList.add('active');
+        
+                    // Remove any existing event listeners to avoid duplication
+                    activeWebview.removeEventListener('did-finish-load', onLoadFinished);
+                    activeWebview.addEventListener('did-finish-load', onLoadFinished);
+                }
+            }
+        
+            function onLoadFinished() {
+                loadingIndicator.classList.remove('active');
+            }
+        
+            function fetchSuggestions(query) {
+                const apiUrl = `https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(query)}`;
+                fetch(apiUrl)
+                    .then(response => response.json())
+                    .then(data => {
+                        showSuggestions(data[1]);
+                    });
+            }
+        
+            function showSuggestions(suggestionsList) {
+                suggestions.innerHTML = '';
+                if (suggestionsList.length > 0) {
+                    suggestionsList.forEach(suggestion => {
+                        const div = document.createElement('div');
+                        div.textContent = suggestion;
+                        div.addEventListener('click', () => {
+                            urlInput.value = suggestion;
+                            suggestions.style.display = 'none';
+                            navigateToURL();
+                        });
+                        suggestions.appendChild(div);
+                    });
+                    suggestions.style.display = 'block';
+                } else {
+                    suggestions.style.display = 'none';
+                }
+            }
+        
+            function switchTab(tabId) {
+                document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+                document.querySelectorAll('webview').forEach(webview => webview.classList.remove('active'));
+        
+                document.querySelector(`.tab[data-id="${tabId}"]`).classList.add('active');
+                document.getElementById(`browser-view-${tabId}`).classList.add('active');
+        
+                // Automatically navigate to the URL if input is not empty
+                if (urlInput.value.trim() !== '') {
+                    navigateToURL();
+                }
+            }
+        
+            function closeTab(tabId) {
+                if (document.querySelectorAll('.tab').length > 1) {
+                    document.querySelector(`.tab[data-id="${tabId}"]`).remove();
+                    document.getElementById(`browser-view-${tabId}`).remove();
+        
+                    const remainingTabs = document.querySelectorAll('.tab');
+                    if (remainingTabs.length > 0) {
+                        const newActiveTabId = remainingTabs[remainingTabs.length - 1].dataset.id;
+                        switchTab(newActiveTabId);
+                    }
+                } else {
+                    alert('Cannot close the last tab');
+                }
+            }
+        });
+        </script>
+        
+</body>
+
+</html>
